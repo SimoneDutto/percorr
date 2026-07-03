@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	size = 8 << 30 // 8 GiB
+	size = 100 << 30 // 100 GiB
 	sig  = "performance"
 )
 
