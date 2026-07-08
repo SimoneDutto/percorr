@@ -23,9 +23,9 @@ import matplotlib.pyplot as plt
 
 RESULTS_DIR = os.environ.get("RESULTS_DIR", "results")
 
-# ---- Collect results --------------------------------------------------------
+# ---- Collect fio results ---------------------------------------------------
 
-results = []  # list of (bs, iodepth, bw_kibs, iops, lat_us)
+results = []  # list of (bs, iodepth, bw_kibs, iops, lat_us, source)
 
 pattern = re.compile(r"sweep-(.+)-(\d+)\.json$")
 for path in sorted(glob.glob(os.path.join(RESULTS_DIR, "sweep-*.json"))):
@@ -36,15 +36,39 @@ for path in sorted(glob.glob(os.path.join(RESULTS_DIR, "sweep-*.json"))):
     iodepth = int(m.group(2))
     with open(path) as f:
         data = json.load(f)
-    job = data["jobs"][0]["read"]
-    bw_kibs = job["bw"]            # KiB/s
-    iops = job["iops"]
-    lat_us = job["lat_ns"]["mean"] / 1000  # ns → µs
-    results.append((bs, iodepth, bw_kibs, iops, lat_us))
+    # fio JSON format: data["jobs"][0]["read"]["bw"]
+    if "jobs" in data and "read" in data["jobs"][0]:
+        job = data["jobs"][0]["read"]
+        bw_kibs = job["bw"]            # KiB/s
+        iops = job["iops"]
+        lat_us = job["lat_ns"]["mean"] / 1000  # ns → µs
+        results.append((bs, iodepth, bw_kibs, iops, lat_us, "fio"))
 
 if not results:
     print(f"No sweep-*.json files found in {RESULTS_DIR}/. Run ./sweep.sh first.")
     sys.exit(1)
+
+# ---- Collect Go benchmark results -------------------------------------------
+
+go_results = []  # list of (bs, iodepth, time_s, source)
+
+go_pattern = re.compile(r"go-(.+)-(\d+)\.json$")
+for path in sorted(glob.glob(os.path.join(RESULTS_DIR, "go-*.json"))):
+    m = go_pattern.match(os.path.basename(path))
+    if not m:
+        continue
+    bs = m.group(1)
+    iodepth = int(m.group(2))
+    with open(path) as f:
+        data = json.load(f)
+    time_s = data["time_s"]
+    # Convert time to bandwidth: FILE_SIZE / time_s → bytes/s → KiB/s
+    bw_kibs = FILE_SIZE_BYTES / time_s / 1024
+    go_results.append((bs, iodepth, bw_kibs, time_s, "go"))
+
+# Merge go results into results list for CSV
+for bs, iodepth, bw_kibs, time_s, source in go_results:
+    results.append((bs, iodepth, bw_kibs, 0, 0, "go"))
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -52,20 +76,20 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 csv_path = os.path.join(RESULTS_DIR, "sweep-results.csv")
 with open(csv_path, "w") as f:
-    f.write("block_size,iodepth,bw_kibs,bw_mibs,iops,lat_us,time_to_read_s\n")
-    for bs, depth, bw, iops, lat in results:
+    f.write("block_size,iodepth,bw_kibs,bw_mibs,iops,lat_us,time_to_read_s,source\n")
+    for bs, depth, bw, iops, lat, source in results:
         time_s = FILE_SIZE_BYTES / (bw * 1024)  # bw is KiB/s → bytes/s
-        f.write(f"{bs},{depth},{bw},{bw/1024:.1f},{iops:.1f},{lat:.1f},{time_s:.2f}\n")
+        f.write(f"{bs},{depth},{bw},{bw/1024:.1f},{iops:.1f},{lat:.1f},{time_s:.2f},{source}\n")
 
 print(f"Wrote {csv_path} ({len(results)} rows)")
 
 # ---- Plot: throughput vs iodepth, one curve per block size ------------------
 
-# Group by block size.
+# Group by block size and source.
 from collections import defaultdict
 by_bs = defaultdict(list)
-for bs, depth, bw, iops, lat in results:
-    by_bs[bs].append((depth, bw / 1024))  # MiB/s
+for bs, depth, bw, iops, lat, source in results:
+    by_bs[(bs, source)].append((depth, bw / 1024))  # MiB/s
 
 # Order block sizes small → large.
 def bs_key(b):
@@ -75,11 +99,13 @@ def bs_key(b):
     return num * units.get(unit[0], 1)
 
 fig, ax = plt.subplots(figsize=(10, 6))
-for bs in sorted(by_bs, key=bs_key):
-    points = sorted(by_bs[bs])  # by iodepth
+# Sort by block size first, then source, so fio and go lines are adjacent
+for (bs, source) in sorted(by_bs.keys(), key=lambda x: (bs_key(x[0]), x[1])):
+    points = sorted(by_bs[(bs, source)])  # by iodepth
     depths = [p[0] for p in points]
     bws = [p[1] for p in points]
-    ax.plot(depths, bws, marker="o", label=f"bs={bs}")
+    style = "-" if source == "fio" else "--"
+    ax.plot(depths, bws, marker="o", linestyle=style, label=f"bs={bs} ({source})")
 
 ax.set_xlabel("I/O depth (queue parallelism)")
 ax.set_ylabel("Throughput (MiB/s)")
@@ -97,16 +123,17 @@ print(f"Wrote {plot_path}")
 # ---- Plot: time to read whole file vs iodepth, one curve per block size ------
 
 by_bs_time = defaultdict(list)
-for bs, depth, bw, iops, lat in results:
+for bs, depth, bw, iops, lat, source in results:
     time_s = FILE_SIZE_BYTES / (bw * 1024)  # bw KiB/s → bytes/s
-    by_bs_time[bs].append((depth, time_s))
+    by_bs_time[(bs, source)].append((depth, time_s))
 
 fig2, ax2 = plt.subplots(figsize=(10, 6))
-for bs in sorted(by_bs_time, key=bs_key):
-    points = sorted(by_bs_time[bs])  # by iodepth
+for (bs, source) in sorted(by_bs_time.keys(), key=lambda x: (bs_key(x[0]), x[1])):
+    points = sorted(by_bs_time[(bs, source)])  # by iodepth
     depths = [p[0] for p in points]
     times = [p[1] for p in points]
-    ax2.plot(depths, times, marker="o", label=f"bs={bs}")
+    style = "-" if source == "fio" else "--"
+    ax2.plot(depths, times, marker="o", linestyle=style, label=f"bs={bs} ({source})")
 
 ax2.set_xlabel("I/O depth (queue parallelism)")
 ax2.set_ylabel("Time to read 8 GiB file (seconds)")
@@ -120,3 +147,35 @@ fig2.tight_layout()
 time_plot_path = os.path.join(RESULTS_DIR, "sweep-plot-time.png")
 fig2.savefig(time_plot_path, dpi=150)
 print(f"Wrote {time_plot_path}")
+
+# ---- Plot: best time comparison (fio vs go) --------------------------------
+
+# Find the best (minimum) time for each source across all configs.
+best_by_source = {}  # source → (time_s, bs, depth)
+for bs, depth, bw, iops, lat, source in results:
+    time_s = FILE_SIZE_BYTES / (bw * 1024)  # bw KiB/s → bytes/s
+    if source not in best_by_source or time_s < best_by_source[source][0]:
+        best_by_source[source] = (time_s, bs, depth)
+
+fig3, ax3 = plt.subplots(figsize=(8, 5))
+sources = sorted(best_by_source.keys())
+times = [best_by_source[s][0] for s in sources]
+labels = [f"{s}\n(bs={best_by_source[s][1]}, depth={best_by_source[s][2]})" for s in sources]
+colors = ["#4c72b0" if s == "fio" else "#dd8452" for s in sources]
+
+bars = ax3.bar(sources, times, color=colors, width=0.5)
+ax3.set_ylabel("Time to read 8 GiB file (seconds)")
+ax3.set_title("Best time: fio vs Go (single cold read)")
+ax3.grid(True, axis="y", alpha=0.3)
+
+# Annotate bars with time and config
+for bar, label, t in zip(bars, labels, times):
+    ax3.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
+             f"{t:.2f}s", ha="center", va="bottom", fontweight="bold")
+    ax3.text(bar.get_x() + bar.get_width() / 2, bar.get_height() / 2,
+             label, ha="center", va="center", fontsize=8, color="white")
+
+fig3.tight_layout()
+best_plot_path = os.path.join(RESULTS_DIR, "sweep-plot-best.png")
+fig3.savefig(best_plot_path, dpi=150)
+print(f"Wrote {best_plot_path}")

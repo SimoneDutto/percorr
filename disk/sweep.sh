@@ -28,10 +28,41 @@ echo "==> IO depths  : ${IO_DEPTHS[*]}"
 echo "==> Total runs : $(( ${#BLOCK_SIZES[@]} * ${#IO_DEPTHS[@]} ))"
 echo
 
+# Find the underlying block device for the test file.
+# Walks up from the mountpoint to find the NVMe/SATA device.
+find_block_device() {
+    local mp
+    mp=$(df --output=target "$TESTFILE" | tail -1)
+    # Resolve LVM → partition → whole disk
+    local dev
+    dev=$(lsblk -no PKNAME "$(findmnt -no SOURCE "$mp")" 2>/dev/null || true)
+    if [[ -z "$dev" ]]; then
+        dev=$(lsblk -no PKNAME "$(findmnt -no SOURCE "$mp")" 2>/dev/null || true)
+    fi
+    # Fallback: grab the first nvme/sd device
+    if [[ -z "$dev" ]]; then
+        dev=$(lsblk -ndo NAME | grep -E '^(nvme|sd)' | head -1)
+    fi
+    echo "/dev/${dev}"
+}
+
+BLOCK_DEVICE="${BLOCK_DEVICE:-$(find_block_device)}"
+echo "==> Block dev  : ${BLOCK_DEVICE} (used for cache flooding)"
+echo
+
+flush_caches() {
+    sync
+    echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
+    # Flood SSD read cache with 2GB of reads to evict cached blocks
+    sudo dd if="${BLOCK_DEVICE}" of=/dev/null bs=1M count=2048 status=none
+}
+
 for bs in "${BLOCK_SIZES[@]}"; do
     for depth in "${IO_DEPTHS[@]}"; do
         out="${RESULTS_DIR}/sweep-${bs}-${depth}.json"
         echo "--- bs=${bs} iodepth=${depth} → ${out}"
+
+        flush_caches
 
         fio --name=sweep \
             --filename="$TESTFILE" \
@@ -40,9 +71,6 @@ for bs in "${BLOCK_SIZES[@]}"; do
             --iodepth="$depth" \
             --bs="$bs" \
             --direct=1 \
-            --time_based \
-            --runtime="${RUNTIME}s" \
-            --loops=1000 \
             --group_reporting \
             --output-format=json \
             --output="$out" 2>/dev/null
