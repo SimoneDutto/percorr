@@ -12,7 +12,7 @@ set -euo pipefail
 
 TESTFILE="${TESTFILE:-./fio-testfile}"
 RESULTS_DIR="${RESULTS_DIR:-results}"
-BLOCK_SIZES_STR="${BLOCK_SIZES:-4k 64k 256k 1M 4M}"
+BLOCK_SIZES_STR="${BLOCK_SIZES:-256k 1M 4M}"
 IO_DEPTHS_STR="${IO_DEPTHS:-1 4 8 16 32 64}"
 
 mkdir -p "$RESULTS_DIR"

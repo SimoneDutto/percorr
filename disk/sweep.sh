@@ -17,7 +17,7 @@ RESULTS_DIR="${RESULTS_DIR:-results}"
 mkdir -p "$RESULTS_DIR"
 
 # The matrix to sweep.
-BLOCK_SIZES=(4k 64k 256k 1M 4M)
+BLOCK_SIZES=(256k 1M 4M)
 IO_DEPTHS=(1 4 8 16 32 64)
 
 echo "==> Test file  : ${TESTFILE}"
