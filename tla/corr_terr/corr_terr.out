@@ -1,0 +1,131 @@
+@!@!@STARTMSG 2262:0 @!@!@
+TLC2 Version 2026.07.18.145032 (rev: 30cc360)
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2187:0 @!@!@
+Running breadth-first search Model-Checking with fp 34 and seed 4189117288806062836 with 1 worker on 12 cores with 6956MB heap and 64MB offheap memory [pid: 1399883] (Linux 6.17.0-35-generic amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+@!@!@ENDMSG 2187 @!@!@
+@!@!@STARTMSG 2220:0 @!@!@
+Starting SANY...
+@!@!@ENDMSG 2220 @!@!@
+Parsing file /home/duttos/miscellanea/percorr/tla/corr_terr/corr_terr.tla
+Labels added.
+Parsing file /tmp/tlc-9986996772322119716/TLC.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-9986996772322119716/Integers.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-9986996772322119716/_TLCTrace.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-9986996772322119716/Naturals.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-9986996772322119716/Sequences.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-9986996772322119716/FiniteSets.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-9986996772322119716/TLCExt.tla (jar:file:/home/duttos/.vscode/extensions/tlaplus.vscode-ide-2026.7.211258/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Warnings (1) during syntax parsing of corr_terr:
+
+
+In module corr_terr
+
+Both the PlusCal algorithm and its TLA+ translation in module corr_terr have changed since the last translation.
+
+
+
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module corr_terr
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module corr_terr
+@!@!@STARTMSG 2219:0 @!@!@
+SANY finished.
+@!@!@ENDMSG 2219 @!@!@
+@!@!@STARTMSG 2185:0 @!@!@
+Starting... (2026-07-21 15:54:57)
+@!@!@ENDMSG 2185 @!@!@
+@!@!@STARTMSG 2189:0 @!@!@
+Computing initial states...
+@!@!@ENDMSG 2189 @!@!@
+@!@!@STARTMSG 2269:0 @!@!@
+Computed 2 initial states...
+@!@!@ENDMSG 2269 @!@!@
+@!@!@STARTMSG 2269:0 @!@!@
+Computed 4 initial states...
+@!@!@ENDMSG 2269 @!@!@
+@!@!@STARTMSG 2269:0 @!@!@
+Computed 8 initial states...
+@!@!@ENDMSG 2269 @!@!@
+@!@!@STARTMSG 2190:0 @!@!@
+Finished computing initial states: 10 distinct states generated at 2026-07-21 15:54:57.
+@!@!@ENDMSG 2190 @!@!@
+@!@!@STARTMSG 2193:0 @!@!@
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.1E-17
+@!@!@ENDMSG 2193 @!@!@
+@!@!@STARTMSG 2201:0 @!@!@
+The coverage statistics at 2026-07-21 15:54:57 (see https://explain.tlapl.us/module-coverage-statistics for how to interpret the following statistics).
+@!@!@ENDMSG 2201 @!@!@
+@!@!@STARTMSG 2779:0 @!@!@
+<x line 12, col 15 to line 12, col 15 of module corr_terr>: 10
+@!@!@ENDMSG 2779 @!@!@
+@!@!@STARTMSG 2779:0 @!@!@
+<pc line 12, col 11 to line 12, col 12 of module corr_terr>: 1
+@!@!@ENDMSG 2779 @!@!@
+@!@!@STARTMSG 2773:0 @!@!@
+<Init line 16, col 1 to line 16, col 4 of module corr_terr>: 10:10
+@!@!@ENDMSG 2773 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 18, col 6 to line 18, col 18 of module corr_terr: 1
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 19, col 6 to line 19, col 17 of module corr_terr: 10
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2772:0 @!@!@
+<Lbl_1 line 21, col 1 to line 21, col 5 of module corr_terr>: 10:10
+@!@!@ENDMSG 2772 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 22, col 6 to line 22, col 17 of module corr_terr: 30
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  |line 22, col 6 to line 22, col 7 of module corr_terr: 20
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 23, col 6 to line 23, col 70 of module corr_terr: 10
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 24, col 6 to line 24, col 17 of module corr_terr: 10
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 25, col 6 to line 25, col 11 of module corr_terr: 10
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2772:0 @!@!@
+<Terminating line 28, col 1 to line 28, col 11 of module corr_terr>: 0:10
+@!@!@ENDMSG 2772 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 28, col 16 to line 28, col 26 of module corr_terr: 30
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  |line 28, col 16 to line 28, col 17 of module corr_terr: 20
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 28, col 31 to line 28, col 44 of module corr_terr: 10
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2202:0 @!@!@
+End of statistics.
+@!@!@ENDMSG 2202 @!@!@
+@!@!@STARTMSG 2200:0 @!@!@
+Progress(2) at 2026-07-21 15:54:57: 30 states generated (6,293 s/min), 20 distinct states found (4,195 ds/min), 0 states left on queue.
+@!@!@ENDMSG 2200 @!@!@
+@!@!@STARTMSG 2199:0 @!@!@
+30 states generated, 20 distinct states found, 0 states left on queue.
+@!@!@ENDMSG 2199 @!@!@
+@!@!@STARTMSG 2194:0 @!@!@
+The depth of the complete state graph search is 2.
+@!@!@ENDMSG 2194 @!@!@
+@!@!@STARTMSG 2268:0 @!@!@
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 1 and the 95th percentile is 1).
+@!@!@ENDMSG 2268 @!@!@
+@!@!@STARTMSG 2186:0 @!@!@
+Finished in 287ms at (2026-07-21 15:54:57)
+@!@!@ENDMSG 2186 @!@!@
