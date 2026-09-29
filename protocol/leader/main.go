@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	address        = "127.0.0.1:9777"
+	defaultAddress = "127.0.0.1:9777"
 	sourceFile     = "source.data"
 	leaderLogFile  = "leader.log"
 	chunkSize      = 1200
-	stepTimeout    = 5 * time.Second
+	stepTimeout    = 10 * time.Millisecond
+	maxRetries     = 10
 	restartMessage = "restart"
 	restartRev     = "restart_rev"
 	ackMessage     = "ack"
@@ -22,6 +23,12 @@ const (
 )
 
 func main() {
+	// Optional positional override so the lab (10.99.77.2) can be targeted
+	// without flags: ./leader.bin [address]
+	address := defaultAddress
+	if len(os.Args) > 1 {
+		address = os.Args[1]
+	}
 	logFile, err := os.OpenFile(leaderLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -61,10 +68,24 @@ func main() {
 	for machine.state != leaderDone {
 		log.Printf("state=%s", machine.state)
 		if err := machine.step(); err != nil {
-			// Per the protocol: a timeout (or any failure) at any point
-			// sends the leader back to the start for a fresh handshake.
 			log.Printf("state=TIMEOUT from=%s err=%v", machine.state, err)
-			machine.state = leaderRestartLoop
+			machine.retries++
+			if machine.retries >= maxRetries {
+				log.Printf("state=RESYNC from=%s", machine.state)
+				machine.retries = 0
+				machine.state = leaderRestartLoop
+				continue
+			}
+			// A short network timeout returns to the sending state so the
+			// last message is sent again.
+			switch machine.state {
+			case leaderWaitRestart:
+				machine.state = leaderRestartLoop
+			case leaderWaitAck:
+				machine.state = leaderBlockLoop
+			default:
+				machine.state = leaderRestartLoop
+			}
 		}
 	}
 	log.Printf("state=%s", machine.state)
@@ -90,6 +111,7 @@ type leaderMachine struct {
 	conn      net.Conn
 	state     leaderState
 	count     int64
+	retries   int
 }
 
 func (m *leaderMachine) step() error {
@@ -137,6 +159,7 @@ func (m *leaderMachine) waitRestart() error {
 	if m.offset < 0 || m.offset > m.size {
 		return fmt.Errorf("invalid offset %d", m.offset)
 	}
+	m.retries = 0
 	m.state = leaderBlockLoop
 	return nil
 }
@@ -155,10 +178,7 @@ func (m *leaderMachine) blockLoop() error {
 	if _, err := m.file.ReadAt(data, m.offset); err != nil {
 		return err
 	}
-	message := make([]byte, 0, len(chunkMessage)+1+int(m.count))
-	message = append(message, chunkMessage...)
-	message = append(message, ' ')
-	message = append(message, data...)
+	message := append([]byte(fmt.Sprintf("%s %d ", chunkMessage, m.offset)), data...)
 	if err := m.send(message); err != nil {
 		return err
 	}
@@ -173,10 +193,12 @@ func (m *leaderMachine) waitAck() error {
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(packet, []byte(ackMessage)) {
+	var ackOffset int64
+	if _, err := fmt.Sscanf(string(packet), ackMessage+" %d", &ackOffset); err != nil || ackOffset != m.offset {
 		return fmt.Errorf("unexpected acknowledgement %q", packet)
 	}
 	log.Printf("state=RECEIVED_ACK offset=%d", m.offset)
+	m.retries = 0
 	m.offset += m.count
 	m.state = leaderBlockLoop
 	return nil

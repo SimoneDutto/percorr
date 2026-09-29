@@ -6,12 +6,17 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
+	"time"
 )
 
 const (
 	address         = ":9777"
 	destinationFile = "destination.data"
 	followerLogFile = "follower.log"
+	readTimeout     = 10 * time.Millisecond
+	maxRetries      = 3
+	finishRetries   = 100
 	restartMessage  = "restart"
 	restartRev      = "restart_rev"
 	ackMessage      = "ack"
@@ -40,7 +45,6 @@ func main() {
 	}
 	defer conn.Close()
 	log.Printf("listening on %s", address)
-
 	machine := &followerMachine{
 		file:  file,
 		conn:  conn,
@@ -49,12 +53,43 @@ func main() {
 
 	packet := make([]byte, 65535)
 	for machine.state != followerDone {
+		if err := machine.conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+			log.Fatal(err)
+		}
 		n, address, err := machine.conn.ReadFrom(packet)
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Printf("state=TIMEOUT from=%s", machine.state)
+				if machine.state == followerWaitFinish {
+					machine.finishTimeouts++
+					if machine.finishTimeouts >= finishRetries {
+						machine.state = followerDone
+					}
+					continue
+				}
+				machine.retries++
+				if machine.retries >= maxRetries {
+					log.Printf("state=RESYNC from=%s", machine.state)
+					machine.retries = 0
+					machine.state = followerWaitRestart
+					continue
+				}
+				// Resend whichever response was sent immediately before this
+				// read: restart_rev or ack.
+				machine.state = machine.retryState
+				if machine.state != followerWaitRestart {
+					if err := machine.step(); err != nil {
+						log.Printf("state=RESET from=%s err=%v", machine.state, err)
+						machine.state = followerWaitRestart
+					}
+				}
+				continue
+			}
 			log.Fatal(err)
 		}
 		machine.address = address
 		machine.packet = packet[:n]
+		machine.retries = 0
 		log.Printf("state=RECEIVE bytes=%d", n)
 		if err := machine.step(); err != nil {
 			// Per the protocol: an unexpected message at any point sends
@@ -73,17 +108,22 @@ const (
 	followerSendRestart followerState = "SEND_RESTART_REV"
 	followerBlockLoop   followerState = "BLOCK_LOOP"
 	followerSendAck     followerState = "SEND_ACK"
+	followerWaitFinish  followerState = "WAIT_FINISH"
 	followerDone        followerState = "DONE"
 )
 
 type followerMachine struct {
-	file    *os.File
-	conn    net.PacketConn
-	address net.Addr
-	packet  []byte
-	offset  int64
-	size    int64
-	state   followerState
+	file           *os.File
+	conn           net.PacketConn
+	address        net.Addr
+	packet         []byte
+	offset         int64
+	ackOffset      int64
+	size           int64
+	state          followerState
+	retryState     followerState
+	retries        int
+	finishTimeouts int
 }
 
 func (m *followerMachine) step() error {
@@ -97,6 +137,8 @@ func (m *followerMachine) step() error {
 		return m.blockLoop()
 	case followerSendAck:
 		return m.sendAck()
+	case followerWaitFinish:
+		return m.waitFinish()
 	default:
 		return fmt.Errorf("unknown state %q", m.state)
 	}
@@ -124,35 +166,62 @@ func (m *followerMachine) sendRestartRevision() error {
 		return err
 	}
 	log.Printf("state=SEND bytes=%d msg=restart_rev offset=%d", len(restartRev)+1+20, m.offset)
-	m.state = followerBlockLoop
+	m.retryState = followerSendRestart
+	if m.offset >= m.size {
+		m.state = followerWaitFinish
+	} else {
+		m.state = followerBlockLoop
+	}
 	return nil
 }
 
 // BLOCK_LOOP: accept one chunk and move to SEND_ACK.
 func (m *followerMachine) blockLoop() error {
 	prefix := []byte(chunkMessage + " ")
-	if len(m.packet) < len(prefix) || !bytes.HasPrefix(m.packet, prefix) {
+	if !bytes.HasPrefix(m.packet, prefix) {
 		return fmt.Errorf("unexpected message %q", m.packet)
 	}
-	data := m.packet[len(prefix):]
-	if _, err := m.file.WriteAt(data, m.offset); err != nil {
-		return err
+	remainder := m.packet[len(prefix):]
+	space := bytes.IndexByte(remainder, ' ')
+	if space < 0 {
+		return fmt.Errorf("unexpected message %q", m.packet)
 	}
-	m.offset += int64(len(data))
+	offset, err := strconv.ParseInt(string(remainder[:space]), 10, 64)
+	if err != nil || offset < 0 {
+		return fmt.Errorf("invalid chunk offset %q", remainder[:space])
+	}
+	data := remainder[space+1:]
+	if offset == m.offset {
+		if _, err := m.file.WriteAt(data, m.offset); err != nil {
+			return err
+		}
+		m.offset += int64(len(data))
+	} else if offset > m.offset {
+		return fmt.Errorf("unexpected chunk offset %d, expected %d", offset, m.offset)
+	}
+	m.ackOffset = offset
 	m.state = followerSendAck
 	return m.step()
 }
 
 // SEND_ACK: acknowledge the chunk and wait for the next packet.
 func (m *followerMachine) sendAck() error {
-	if _, err := m.conn.WriteTo([]byte(ackMessage), m.address); err != nil {
+	message := fmt.Sprintf("%s %d", ackMessage, m.ackOffset)
+	if _, err := m.conn.WriteTo([]byte(message), m.address); err != nil {
 		return err
 	}
-	log.Printf("state=SEND bytes=3 msg=ack offset=%d", m.offset)
+	log.Printf("state=SEND bytes=%d msg=ack offset=%d", len(message), m.ackOffset)
+	m.retryState = followerSendAck
 	if m.offset >= m.size {
-		m.state = followerDone
+		m.state = followerWaitFinish
 	} else {
 		m.state = followerBlockLoop
 	}
 	return nil
+}
+
+// WAIT_FINISH: keep accepting a restart for a short grace period so a leader
+// that missed the final ack can resynchronize before the follower exits.
+func (m *followerMachine) waitFinish() error {
+	return m.waitRestart()
 }
