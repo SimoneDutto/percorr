@@ -1,37 +1,48 @@
 #!/bin/bash
 
-# One-shot lab setup: a single network namespace with a lossy loopback.
-# Run once as root. Everything the protocol sends (chunks AND acks) crosses
-# the lossy path, in both directions.
+# One-shot network lab. Everything crosses the netem qdisc on loopback.
 #
-#   sudo ./netlab.sh                 create the lab
+#   sudo ./netlab.sh duplicates      duplicate packets only
+#   sudo ./netlab.sh clean           no network changes
+#   sudo ./netlab.sh drop            drop packets only
+#   sudo ./netlab.sh reorder         reorder packets only
+#   sudo ./netlab.sh all             combine drop, duplicates and reordering
 #   sudo ./netlab.sh teardown        remove the lab
-#
-# Then run the chaos test inside it (no sudo needed inside, but entering
-# requires root):
-#
-#   sudo ip netns exec percorr_ns ./protocol/chaos.sh
 
 set -eu
 
 NS=percorr_ns
-LOSS=20
+MODE=${1:-all}
 
-case ${1:-setup} in
-setup)
+case "$MODE" in
+clean|duplicates|drop|reorder|all)
 	ip netns add "$NS"
-	# Loopback must be up inside the namespace for 127.0.0.1 to work.
 	ip -n "$NS" link set lo up
-	# Lossy loopback: drops packets in both directions.
-	ip netns exec "$NS" tc qdisc add dev lo root netem loss "$LOSS%"
-	echo "lab ready: sudo ip netns exec $NS ./protocol/chaos.sh"
+	case "$MODE" in
+	clean)
+		;;
+	duplicates)
+		ip netns exec "$NS" tc qdisc add dev lo root netem duplicate 20%
+		;;
+	drop)
+		ip netns exec "$NS" tc qdisc add dev lo root netem loss 20%
+		;;
+	reorder)
+		# netem needs delay before it can reorder queued packets.
+		ip netns exec "$NS" tc qdisc add dev lo root netem delay 10ms reorder 20%
+		;;
+	all)
+		ip netns exec "$NS" tc qdisc add dev lo root netem loss 20% duplicate 20% delay 10ms reorder 20%
+		;;
+	esac
+	echo "lab ready: $MODE"
 	;;
 teardown)
 	ip netns del "$NS"
 	echo "lab removed"
 	;;
 *)
-	echo "usage: sudo $0 [setup|teardown]" >&2
+	echo "usage: sudo $0 {clean|duplicates|drop|reorder|all|teardown}" >&2
 	exit 1
 	;;
 esac

@@ -10,6 +10,7 @@ set -u
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROUNDS=5
+START_TIME=$(date +%s)
 
 rm -f "$DIR/destination.data" "$DIR/leader.log" "$DIR/follower.log" "$DIR/chaos.log"
 
@@ -64,4 +65,4 @@ wait "$FINAL_LEADER"
 wait "$FINAL_FOLLOWER"
 
 cmp "$DIR/source.data" "$DIR/destination.data"
-echo "source and destination are equal"
+echo "source and destination are equal in $(( $(date +%s) - START_TIME )) seconds"

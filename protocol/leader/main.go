@@ -14,7 +14,7 @@ const (
 	sourceFile     = "source.data"
 	leaderLogFile  = "leader.log"
 	chunkSize      = 1200
-	stepTimeout    = 10 * time.Millisecond
+	stepTimeout    = 50 * time.Millisecond
 	maxRetries     = 10
 	restartMessage = "restart"
 	restartRev     = "restart_rev"

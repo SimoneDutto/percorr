@@ -14,7 +14,7 @@ const (
 	address         = ":9777"
 	destinationFile = "destination.data"
 	followerLogFile = "follower.log"
-	readTimeout     = 10 * time.Millisecond
+	readTimeout     = 50 * time.Millisecond
 	maxRetries      = 3
 	finishRetries   = 100
 	restartMessage  = "restart"
