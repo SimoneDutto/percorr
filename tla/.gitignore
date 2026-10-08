@@ -1,0 +1,5 @@
+*.tlc
+*.bin
+*.out
+*_TTrace_*.tla
+states
