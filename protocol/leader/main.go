@@ -14,6 +14,7 @@ const (
 	sourceFile     = "source.data"
 	leaderLogFile  = "leader.log"
 	chunkSize      = 1200
+	windowSize     = 4
 	stepTimeout    = 50 * time.Millisecond
 	maxRetries     = 10
 	restartMessage = "restart"
@@ -110,8 +111,14 @@ type leaderMachine struct {
 	timeout   time.Duration
 	conn      net.Conn
 	state     leaderState
-	count     int64
 	retries   int
+	batch     []transferChunk
+	acked     map[int64]struct{}
+}
+
+type transferChunk struct {
+	offset int64
+	data   []byte
 }
 
 func (m *leaderMachine) step() error {
@@ -159,6 +166,8 @@ func (m *leaderMachine) waitRestart() error {
 	if m.offset < 0 || m.offset > m.size {
 		return fmt.Errorf("invalid offset %d", m.offset)
 	}
+	m.batch = nil
+	m.acked = make(map[int64]struct{})
 	m.retries = 0
 	m.state = leaderBlockLoop
 	return nil
@@ -170,38 +179,101 @@ func (m *leaderMachine) blockLoop() error {
 		m.state = leaderDone
 		return nil
 	}
-	m.count = int64(m.chunkSize)
-	if remaining := m.size - m.offset; remaining < m.count {
-		m.count = remaining
+	if len(m.batch) == 0 {
+		if err := m.prepareBatch(); err != nil {
+			return err
+		}
 	}
-	data := make([]byte, m.count)
-	if _, err := m.file.ReadAt(data, m.offset); err != nil {
+	if err := m.sendBatch(); err != nil {
 		return err
 	}
-	message := append([]byte(fmt.Sprintf("%s %d ", chunkMessage, m.offset)), data...)
-	if err := m.send(message); err != nil {
-		return err
-	}
-	log.Printf("state=SEND bytes=%d msg=chunk offset=%d", len(message), m.offset)
 	m.state = leaderWaitAck
 	return nil
 }
 
-// WAIT_FOR_ACK: accept ack and advance to the next block.
+func (m *leaderMachine) prepareBatch() error {
+	batch := make([]transferChunk, 0, windowSize)
+	nextOffset := m.offset
+	for len(batch) < windowSize && nextOffset < m.size {
+		count := int64(m.chunkSize)
+		if remaining := m.size - nextOffset; remaining < count {
+			count = remaining
+		}
+		data := make([]byte, count)
+		if _, err := m.file.ReadAt(data, nextOffset); err != nil {
+			return err
+		}
+		batch = append(batch, transferChunk{offset: nextOffset, data: data})
+		nextOffset += count
+	}
+	m.batch = batch
+	m.acked = make(map[int64]struct{})
+	return nil
+}
+
+func (m *leaderMachine) sendBatch() error {
+	for _, chunk := range m.batch {
+		message := append([]byte(fmt.Sprintf("%s %d ", chunkMessage, chunk.offset)), chunk.data...)
+		if err := m.send(message); err != nil {
+			return err
+		}
+		log.Printf("state=SEND bytes=%d msg=chunk offset=%d", len(message), chunk.offset)
+	}
+	return nil
+}
+
+// WAIT_FOR_ACK: collect ACKs for the whole batch under one deadline.
 func (m *leaderMachine) waitAck() error {
-	packet, err := m.receive()
-	if err != nil {
+	if len(m.batch) == 0 {
+		return fmt.Errorf("no active chunk batch")
+	}
+	if err := m.collectBatchAcks(); err != nil {
 		return err
 	}
-	var ackOffset int64
-	if _, err := fmt.Sscanf(string(packet), ackMessage+" %d", &ackOffset); err != nil || ackOffset != m.offset {
-		return fmt.Errorf("unexpected acknowledgement %q", packet)
-	}
-	log.Printf("state=RECEIVED_ACK offset=%d", m.offset)
+	lastChunk := m.batch[len(m.batch)-1]
+	m.offset = lastChunk.offset + int64(len(lastChunk.data))
+	m.batch = nil
+	m.acked = make(map[int64]struct{})
 	m.retries = 0
-	m.offset += m.count
 	m.state = leaderBlockLoop
 	return nil
+}
+
+func (m *leaderMachine) collectBatchAcks() error {
+	if err := m.conn.SetDeadline(time.Now().Add(m.timeout)); err != nil {
+		return err
+	}
+	packet := make([]byte, 65535)
+	for len(m.acked) < len(m.batch) {
+		n, err := m.conn.Read(packet)
+		if err != nil {
+			return err
+		}
+		var ackOffset int64
+		if _, err := fmt.Sscanf(string(packet[:n]), ackMessage+" %d", &ackOffset); err != nil {
+			log.Printf("state=IGNORE_ACK packet=%q", packet[:n])
+			continue
+		}
+		if !m.batchContains(ackOffset) {
+			log.Printf("state=IGNORE_STALE_ACK offset=%d", ackOffset)
+			continue
+		}
+		if _, exists := m.acked[ackOffset]; exists {
+			continue
+		}
+		m.acked[ackOffset] = struct{}{}
+		log.Printf("state=RECEIVED_ACK offset=%d count=%d/%d", ackOffset, len(m.acked), len(m.batch))
+	}
+	return nil
+}
+
+func (m *leaderMachine) batchContains(offset int64) bool {
+	for _, chunk := range m.batch {
+		if chunk.offset == offset {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *leaderMachine) send(message []byte) error {
